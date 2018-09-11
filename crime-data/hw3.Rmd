@@ -1,0 +1,193 @@
+---
+title: 95-868 Homework 3
+author: Samantha L. Misurda
+output: html_document
+---
+
+#### Instructions 
+
+Submit this Rmd file on blackboard. Don't submit additional files.
+
+Code should be clearly commented. Plots should be presentable and properly labeled/titled. Mitigate overplotting whenever possible. 
+
+You may hard code whatever written answers are required.
+
+#### Preliminaries
+
+Here are some libraries that you may need.
+```{r}
+library(ggplot2)
+library(plyr)
+library(reshape2)
+library(knitr)
+library(binom) 
+```
+
+We will use the data files `county_data.csv` and `county_ggplot.rda`, which were part of the lecture materials. We'll assume they are in the same directory as this .Rmd file.
+
+```{r}
+county.data = read.csv(file = 'county_data.csv', header=TRUE)
+load('county_ggplot.rda')
+```
+
+
+#### Questions 
+
+**Problem 1:** 
+
+Make a scatterplot of the per capita violent crime rates for each county as function of the population. Does this plot resemble those for deaths, births, or infant deaths that we saw in the notes? If not, what is the biggest difference?
+
+Note: you may want to use a log transform on the x-axis to see the data more clearly.
+
+```{r fig.width=6, fig.height=4, dpi=80, fig.align='center'}
+# Turn off scientific notation
+options(scipen = 999)
+
+# Find the per capita violent crime rate for each county
+# Also add in the other fields, since the notes are choropleth maps, not plots
+county.data <- mutate(county.data, 
+        crimes.per.capita = violent.crimes / population, 
+        births.per.capita = births / population,
+        deaths.per.capita = deaths / population,
+        infant.deaths.per.capita = infant.deaths / population)
+
+# Plot the data, applying a log transform to population
+ggplot(county.data, aes(x = population, y = crimes.per.capita)) +
+  geom_point() +
+  scale_x_log10() + 
+  ggtitle("Violent Crime Rates per County") + 
+  theme(plot.title = element_text(hjust = 0.5))+
+  ylab("Crimes Per Capita")+
+  xlab("log(Population)")
+
+```
+
+ANS: 
+
+The per-capita crime rate seems to vary more for larger populations. There are also some counties that are reporting a crime rate of .0, suggesting no crime. This would be rare to say for births or deaths. Finally, the death rate (adults and infants) seems to increase as population decreases. However, as we discussed in class, per-capita values have a tendency to just report the smallest groups.
+
+**Problem 2:**
+
+Create a function called `find.std.residual()`, which lets you specify a column in the `county.data` data frame, and then uses the p-value approach to identify counties where people may potentially be at higher risk. 
+
+Specifically, your function should take the following inputs
+
+* the `county.data` data set
+* `variable`: the name of the column that you want to inspect
+* `null.prob`: this variable determines the null hypothesis that you will compare all counties to. Specifically, the null is that all counties are `binomial(population, null.prob)` random variables.
+
+Your function should return a data frame with all of the columns in `county.data`, plus the following additional columns
+
+* `expected.null`: the expected number of outcomes under the null hypothesis for each county
+* `std.dev.null`: the standard deviation under the null hypothesis for each county
+* `residual`: the difference between the observed count and that predicted under the null
+* `std.residual`: the standardized residual
+
+The rows of the data frame should be sorted in decreasing order by `std.residual`
+
+Be sure to comment your function thoroughly so that it is easy to understand later.
+
+```{r fig.width=8, fig.height=6, dpi=100, fig.align='center'}
+
+# Identify high risk counties based on p-values
+find.std.residual <- function(county.data, variable, null.prob){
+
+  # Add columns for expected null, stdev null, residual, and standardized residualto the data frame
+  result <- mutate(county.data,
+    expected.null = population * null.prob,  
+    st.dev.null = sqrt(expected.null * (1 - null.prob)),
+    residual = variable - expected.null,
+    std.residual = residual / st.dev.null)
+  
+  # Order by std.residual
+  result <- result[order(-result$std.residual),]
+  
+  # return the resulting data frame
+  result
+}
+```
+
+
+**Problem 3:**
+
+How should we assess the risk of violent crime in each county? Let's suppose the number of violent crimes in each county is a binomial random variable. Use your function from problem 2 to create a table showing the ten counties for which you are most confident the underlying probability of the binomial random variable would exceed 1%. (These are the counties for which you are most confident that the crime risk is high enough to warrant further investigation). Use the standardized resisduals computed by your function in problem 2 to assess your confidence for each county.
+
+```{r fig.width=8, fig.height=6, dpi=100, fig.align='center'}
+# State the null hypothesis
+null.hypothesis <- .01
+
+# Call function from part 2, with violent crime as the column of interest
+violent.crime.residual <- find.std.residual(county.data, county.data$violent.crimes, null.hypothesis)
+
+# Grab the ten highest rows
+ten.most.confident <- head(violent.crime.residual, 10)
+
+# Print the result
+kable(ten.most.confident, caption = "Counties with Highest Violent Crime Rates")
+
+###
+# From general knowledge, these locations seem to be fairly high in violent crime. Considering the population size, as well as the per capita rates that are all around .01, I am fairly confident in these values.
+###
+```
+
+**Problem 4:**
+
+Create a function `map.std.residual()` which takes the output of your function `find.std.residual()`, and creates a choropleth plot showing the standardized residuals from the null hypothesis.
+
+The inputs to the function should be
+
+* `county.gg`: the data frame needed to draw the map
+* `county.data`: the output from `find.std.residual()`
+
+The output should be a map that can be printed, to which you can customize later by adding calls like `scale_fill_gradient2()` and `labs()`
+
+Use this function to create a choropleth plot of the results from problem 3.
+
+```{r fig.width=10, fig.height=6, dpi=100, fig.align='center'}
+
+# Creates a choropleth map based on standardized residuals
+map.std.residual <- function(county.gg, county.data){
+  # Merge the county data to the map data
+  county.mapdata <- merge(county.gg, county.data, by.x = 'fips', by.y='STCOU')
+  county.mapdata <- arrange(county.mapdata, order)
+  
+  # Return the plot
+  ggplot(data = county.mapdata, mapping=aes(x= long, y = lat, fill = std.residual, group = group)) + geom_polygon()
+}
+```
+
+
+**Problem 5:**
+
+Using the functions you wrote, make a new choropleth plot and table, this time using the US violent crime per capita rate as your null hypothesis. 
+
+```{r fig.width=10, fig.height=6, dpi=100, fig.align='center'}
+# Compute the null hypothesis
+per.capita.violent.crime <- sum(county.data$violent.crimes) / sum(county.data$population)
+
+# Find the residuals
+violent.crime.residual <- find.std.residual(county.data, county.data$violent.crimes, per.capita.violent.crime)
+
+ten.most.confident <- head(violent.crime.residual, 10)
+
+# Print the result of the ten most confident, just for comparison
+kable(ten.most.confident, caption = "Counties with Highest Violent Crime Rates")
+
+# Create the map using the full data frame
+resulting.map <- map.std.residual(county.gg, violent.crime.residual) 
+
+# Customize the map, and print out
+# Note that this map contains all of the data, not just the ten highest
+resulting.map <- resulting.map + labs(title = "Standard Residuals - Violent Crime") 
+resulting.map <- resulting.map + scale_fill_gradient2(low = 'grey', high = 'orange') 
+resulting.map  <- resulting.map + theme(plot.title = element_text(hjust = 0.5))
+
+resulting.map
+
+```
+
+Comment on why the map and table from problem 5 are different from those of problem 4.
+
+The results in problem 5 are slightly different than problem 4 due to the selection of the "null hypothesis". Instead of comparing to an arbitrary 1% confidence value, we are comparing the values against the nationwide normalized per capita rate for violent crimes. Interestingly, the results are fairly similar.  
+
+

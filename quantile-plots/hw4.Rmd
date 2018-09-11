@@ -1,0 +1,270 @@
+---
+title: 95-868 Homework 4
+author: Samantha L. Misurda
+output: html_document
+---
+
+#### Instructions 
+
+Submit this Rmd file on blackboard. Don't submit additional files.
+
+Code should be clearly commented. Plots should be presentable and properly labeled. Mitigate overplotting whenever possible.
+
+#### Preliminaries
+
+We'll use the data file `dataset_hw4.csv`, which should be in the same directory as this markdown file (which should also be your working directory). It is a data frame of expenditures by household from the consumer expenditure survey
+
+
+#### Questions 
+
+
+**Problem 1:** 
+
+Group the households into two categories:
+
+* apartments: those whose `home.type` is "apartment or flat" or "high-rise"
+* homes: those whose `home.type` is "single family detached"
+
+Compare the `housing` expenditures for the two groups using a quantile plot. Do they appear different? 
+
+
+```{r}
+library(plyr)
+library(ggplot2)
+library(reshape2)
+expenditures = read.csv(file = 'dataset_hw4.csv', header = TRUE)
+```
+
+```{r fig.width = 8, fig.height = 6, dpi = 100, fig.align = 'center'}
+# Group the housing types into apartments and homes
+expenditures.grouped <- subset(expenditures, home.type == "apartment or flat" | home.type == "high-rise" | home.type == "single family detached")
+
+expenditures.grouped$home.type = with(expenditures.grouped, mapvalues(home.type, from = c("single family detached", "apartment or flat", "high-rise"), to = c("Homes", "Apartments", "Apartments") ) )
+
+# Due to how I subsetted the expenditures dataframe, the records for items that were not homes or apartments were dropped, but the levels were still there. This removes them. 
+expenditures.grouped <- droplevels(expenditures.grouped)
+
+# Draw the plot
+ggplot(data = expenditures.grouped, mapping = aes(sample = housing, color = home.type)) + 
+  stat_qq(distribution = 'qunif') + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Quantiles', y ='Housing Expenditures', title = 'Quantile Plot for Housing Expenditures \n (Grouped by Home Type)')
+```
+
+ANS: 
+
+The two groups appear to be different. The values in the first two quantiles seem to be fairly similar, but the key differences lie in quantiles three (.75) and 4 (1.00). The expenditures reported by homes far exceed those values reported for apartments -- with the exception of the few outliers (they may be outliers, more investigation is required) in the apartment group's quantile four. 
+
+**Problem 2:**
+
+Compare the `housing` expenditures but first take a log transform. (Exclude those who spent zero or negative amounts on `housing` from the analysis)
+
+Use quantile plots and/or QQ plots to compare the two groups after the log transform. If helpful, also compare the residuals. What are the similarities and differences between the two groups?
+
+```{r}
+# Take the log transform of housing, and drop zero and negative values
+expenditures.grouped.log <- expenditures.grouped
+expenditures.grouped.log$housing <- log(expenditures.grouped$housing) 
+expenditures.grouped.log <- subset(expenditures.grouped.log, housing > 0)
+```
+
+```{r fig.width = 8, fig.height = 8, dpi = 100, fig.align = 'center'}
+# Drawing the QQ plot is adapted from an example in the lecture notes. 
+# Get the size of each group
+number.of.points <- with(expenditures.grouped.log, min(length(housing[home.type == 'Apartments']), length(housing[home.type == 'Homes'])))
+
+# Determine which quantiles to show in the plot
+probs = seq(from = 0, to = 1, length.out = number.of.points)
+
+# Extract the quantiles for each home type
+quantile1 = with(expenditures.grouped.log, quantile( housing[ home.type == 'Apartments'], probs = probs))
+quantile2 = with(expenditures.grouped.log, quantile( housing[ home.type == 'Homes'], probs = probs))
+
+# Draw the QQ plot
+ggplot(mapping = aes(x = quantile1, y = quantile2)) + geom_point() + geom_abline(intercept = 0, slope = 1) + labs(x = "Apartments", y = "Homes", title = 'QQ plot, log(Housing Expenditures), Grouped by Home Type') + theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+```{r fig.width = 8, fig.height = 8, dpi = 100, fig.align = 'center'}
+# Redo Question 1 for clarity
+ggplot(data = expenditures.grouped.log, mapping = aes(sample = housing, color = home.type)) + 
+  stat_qq(distribution = 'qunif') + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Quantiles', y = 'log(Housing Expenditures)', title = 'Quantile Plot for Housing Expenditures \n (Grouped by Home Type)') 
+
+```
+
+```{r fig.width = 8, fig.height = 8, dpi = 100, fig.align = 'center'}
+# Find the mean and caculate residuals
+expenditures.grouped.log <- ddply(expenditures.grouped.log, 'home.type', mutate, avg.housing = mean(housing), residual = housing - avg.housing)
+
+# Plot the residuals
+ggplot(data = expenditures.grouped.log, mapping = aes(sample = residual, color = home.type)) + 
+  stat_qq(distribution = 'qunif') + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x='Quantiles', y='Residual', title = 'Quantile Plot for Housing Expenditures Residuals \n (Grouped by Home Type)') 
+
+```
+
+ANS: 
+
+I created both a new QQ Plot, and repeated the Quantile plot from Question 1, as I feel that the plot in Question 1 is easier to read. 
+
+The QQ Plot echoes what we saw in the first problem, expenditures are higher for Home records than for Apartment records. After performing the log transform, seven records were dropped, for being negative or zero. If we redo Question 1 using a log transform, we also see that the log transform moves the points closer together, fitting more to the normal distribution. However, the values for the Apartments are almost always lower than those for the Homes. When transformed, the two groups seem to follow the same trend, but with Apartments having a lower value than Homes. 
+
+Finally, the third plot shows the residuals for the same data set. Similar to the example in the slides, the two lines seem to be very similar, pointing that they may be identically distributed.
+
+
+** Problem 3:**
+
+Using the `movies` data set that comes with the package `ggplot2movies`, visualize the distribution of ratings for movies before and after 1930.
+
+How do the distributions differ? Should the distributions be compared with or without a log transform?
+
+You may want to adjust the size of the points to reduce overplotting.
+
+```{r fig.width = 8, fig.height = 6, dpi = 100, fig.align = 'center'}
+# Import the dataset
+library(ggplot2movies)
+head(movies)
+
+# Seperate into movies before 1930 and after 1930
+movies.old <- subset(movies, year <= 1930)
+movies.old$year <- "Pre-1930"
+movies.new<- subset(movies, year > 1930)
+movies.new$year <- "Post-1930"
+
+# Merge the two groups back together. This may not have been the best way, but the focus of this analysis is only on the two categories, not specifics.
+movies.binned.by.year <- rbind(movies.old, movies.new)
+
+# Plot the data with jittering, no transform
+ggplot(data = movies.binned.by.year, mapping = aes(sample = rating, color = year)) + 
+  stat_qq(geom = 'point', distribution = 'qunif', size = .5, position = 'jitter') + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x ='Quantiles', y ='Film Rating', title = 'Quantile Plot of Film Ratings Pre and Post 1930') 
+
+```
+
+```{r fig.width = 8, fig.height = 8, dpi = 100, fig.align = 'center'}
+# Take the log transform of rating, and drop zero and negative values
+movies.binned.by.year.log <- movies.binned.by.year
+movies.binned.by.year.log$rating <- log(movies.binned.by.year.log$rating) 
+movies.binned.by.year.log <- subset(movies.binned.by.year.log, rating > 0)
+
+# Plot the data, with jittering and a log transform
+ggplot(data = movies.binned.by.year.log, mapping = aes(sample = rating, color = year)) + 
+  stat_qq(geom = 'point', distribution = 'qunif', size = .5, position = 'jitter') + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x ='Quantiles', y ='log(Film Rating)', title = 'Quantile Plot of Film Ratings Pre and Post 1930 \n Log Transform') 
+```
+
+ANS:
+
+Generally, movies released prior to 1930 have a higher overall rating than newer films. It is worth noting that this dataset contains almost 50000 more observations for newer films. 
+
+The differences in ratings are small for the first and last quantiles, the extreme values. The middle 50% of data is the most spread out. We will also notice that the "best" of the newer films (those in the final quantile) have higher values than the best of the older films. Jittering the points helps to show that the worst older films in the final quantile received lower scores than the worst films in the newer category. 
+
+Applying a log transform does not seem to improve our ability to compare the distributions, as the overall structure is fairly similar. The ratings are also relatively small numbers, and reducing the value logarithmically isn't necessary. 
+
+Please also note that jitter has been added to both plots.
+
+** Problem 4:**
+
+Compare the distribution of ratings for each of the genres: action, animation, comedy, drama, documentary, romance, and short. If a movie belongs to more than one genre, include it in both distributions. Use both quantile plots and Q-Q plots.
+
+```{r}
+# Since we have whether or not a film belongs to a genre stored as a bit vector, we can use the melt command to create a "Genre" column
+
+# Strip out unnecessary columns from data frame
+movies.by.genre <- subset(movies, select = c("title", "year", "rating", "Action", "Animation", "Comedy", "Drama", "Documentary", "Romance", "Short") )
+                         
+# Use melt to stack the genre rows into one column                         
+movies.by.genre <- melt(movies.by.genre, c(1,2,3))
+colnames(movies.by.genre)[4] <- "genre"
+
+# Select only the movies that are in the corresponding genre
+movies.by.genre <- subset(movies.by.genre, value == 1);
+```
+
+```{r fig.width = 10, fig.height = 6, dpi = 100, fig.align = 'center'}
+# Quantile Plot
+ggplot(data = movies.by.genre, mapping = aes(sample = rating)) + 
+  stat_qq(distribution = qunif) + facet_wrap('genre', nrow = 2) + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Quantiles', y = 'Rating', title = 'Quantile Plot \n Ratings by Genre')
+```
+
+```{r fig.width = 10, fig.height = 6, dpi = 100, fig.align = 'center'}
+# Similar to above, this function is adapted from the lecture notes
+find.qq <- function(data, all.ratings) {
+  number.of.points = min(length(data$rating), length(all.ratings))
+  probs = seq(from = 0, to = 1, length.out = number.of.points)
+  quantile1 = quantile(data$rating, probs = probs)
+  quantile2 = quantile(all.ratings, probs = probs )
+  return(data.frame(rating = quantile1, all.ratings = quantile2, quantile = probs) )
+}
+
+qqplot.by.genre <- ddply(movies.by.genre, 'genre', find.qq, all.ratings = movies.by.genre$rating)
+
+# Draw the QQ Plot
+ggplot(data = qqplot.by.genre, mapping = aes(x = all.ratings, y = rating)) + geom_point() + facet_wrap('genre', nrow = 2) + 
+  labs(x = 'All Ratings', y = 'Rating', title = 'QQ plots \n Individual Genre vs All Films') + 
+  geom_abline(slope = 1) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+True or False: 
+1) The ratings distribution for action movies is worse than those of the pooled movies
+2) Animation movies have better ratings than the overall distribution at the lower quantiles, but worse than the overall distribution at the highest quantiles.
+3) Documentaries and Shorts have worse ratings than the overall distribution at the lower quantiles, but better ratings than the overall distribution otherwise.
+
+Also, which worked better for answering the T/F questions: quantile plots or QQ plots?
+
+ANS: 
+1) True
+2) True, but they seem to only be slightly worse in the upper quantile
+3) True, but documentaries seem more so
+
+I felt that the QQ plots made answering the true/false questions easier, mostly due to the comparison against all genres. The common comparison value allowed the viewer to easily see trends, and how they differ across genres. However, by focusing on ratings only on the x and y axes, it was a little more challenging to figure out where exactly a quantile ended and another began. This is not the gase in a quantile plot, where the quantiles are along the x-axis.
+
+** Problem 5:**
+
+Compare the distribution of ratings for each of the genres, and also for the following time periods: 1900-1920, 1921-1940, 1941-1960, 1961-1980, 1981-2000 (i.e., there should be 35 groups total). Use both quantile plots and Q-Q plots. 
+
+```{r}
+# Bin the data into decades 
+movies.by.genre.decades <- movies.by.genre
+movies.by.genre.decades$year <- cut(movies.by.genre$year, breaks = c(0, 1920, 1940, 1960, 1980, 9999), labels = c("1900-1920", "1921-1940", "1941-1960", "1961-1980", "1981-2000"))
+
+```
+
+```{r fig.width = 14, fig.height = 20, dpi = 100, fig.align = 'center'}
+# Quantile Plot
+ggplot(data = movies.by.genre.decades, mapping = aes(sample = rating)) + 
+  stat_qq(distribution = qunif) + facet_wrap(c('year', 'genre'), nrow = 5) + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Quantiles', y = 'Rating', title = 'Quantile Plot \n Ratings by Genre')
+```
+
+```{r fig.width = 14, fig.height = 20, dpi = 100, fig.align = 'center'}
+qqplot.by.genre.decade <- ddply(movies.by.genre.decades, c('genre', 'year'), find.qq, all.ratings = movies.by.genre.decades$rating)
+
+# Draw the QQ Plot
+ggplot(data = qqplot.by.genre.decade, mapping=aes(x = all.ratings, y = rating)) + geom_point() + facet_wrap(c('year', 'genre'), nrow = 5) + 
+  labs(x = 'All Ratings', y = 'Rating', title = 'QQ plots \n Individual Genre vs All Films \n Grouped by Decade') + 
+  geom_abline(slope = 1) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+```
+
+* Describe how the distribution of ratings for action movies changed over time, relative to the pooled ratings
+
+The quality of action films as almost always been below the trend line, but they seem to have declined in later years. The peak for highly rated action films occured in the period from 1920 until around 1960. 
+
+It is also interesting to note that there was an increase in action films in general, from the first decade up until now. 
+
+
+* Describe how the distribution of ratings for comedies changed over time, relative to the pooled ratings
+
+Unlike action films, comedies were abundant in the early years of movies. Until 1960, we saw a fairly even split between comedy films that were above the line, and comedy films that were below the line. In more recent years, comedies (although they seem to be box office moneymakers) have seen a drop in favorable ratings.
+
+

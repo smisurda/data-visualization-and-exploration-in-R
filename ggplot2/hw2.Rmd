@@ -1,0 +1,200 @@
+<style>
+ td {
+  width: 150px;
+}
+</style>
+---
+title: 95-868 Homework 2
+author: Samantha L. Misurda
+output: html_document
+---
+
+#### Instructions 
+
+Submit this Rmd file on blackboard. Don't submit additional files.
+
+Follow all instructions from homework 1 regarding comenting and reporting your answers.
+
+Additionally, your plots should be presentable to a professional audience.
+
+* Add axis labels, legend labels, and titles. Captialize the important words in them.
+* Categorical data should be ordered for ease of visualization (usually not alphabetical order)
+* Text shouldn't be overly large or tiny.
+* Adjust the `fig.width`, `fig.height`, and `dpi` agruments so that the plot is reasonably sized.
+* The plot type and layout should be chosen so that the data is easy to read.
+* Adjust marker size or jitter to mitigate overplotting 
+
+Note 2: For the comprehension questions at the end of questions 1, 2, and 4, you may "hard code" your answers as simple text.
+
+#### Preliminaries
+
+We'll use the data file `hw2data.rda`, which should be in the same directory as this markdown file (which should also be your working directory)
+```{r}
+# load hw2data.rda from the working directory
+load('hw2data.rda')
+
+# Load libraries
+library(ggplot2)
+library(plyr)
+library(knitr)
+
+```
+
+Unlike a CSV file, which only contains one data frame, an `.rda` file contains multiple R variables, and can only be opened by R. You should have the following data frames, all taken from the Consumer Expenditure Survey:
+
+1. `expenditure`: A data frame of expenditure amounts by category for 4000 households
+2. `household`: A data frame of household and demographic information (for the same 4000 households).
+3. `income`: A data frame of income and job information (for the same 4000 households)
+
+The column names for `expenditure`, `household`, and `income` are hard to decipher. So there are 3 more data frames, with explanations for the column names.
+
+4. `expenditure.key`: Description of each column in `expenditure`
+5. `household.key`: Description of each column in `household`
+6. `income.key`: Description of each column in `income`
+
+Finally, there are two more data frames:
+
+7. `item.purchases`: Each row corresponds to a specific itemized purchase made by the households. The household ID, the cost, and a `ucc` code giving a description of the purchase is included.
+8. `item.key`: Descriptions of the different `ucc` codes
+
+Note that in `expenditure.key`, several of the expenditure categories have numbers, giving the "level" of the category. For example `food (1)` can be divided into `food at home (2)` and `food away from home (2)`. The latter subcategory can be further divided into `food excluding meals as pay (3)` and `meals as pay (3)`.
+
+#### Questions 
+
+
+**Problem 1:** 
+
+Make a dot chart showing the 30 most common itemized purchases, and how often they were reported in the data frame `item.purchases`. You should use the actual category descriptions in your chart, not the UCC codes.
+```{r fig.width=8, fig.height=6, dpi=100, fig.align='center', warning = FALSE, message = FALSE}
+
+# Collect the 30 most common purchases, and get their counts
+purchases <- ddply(item.purchases, "ucc", summarize, frequency = length(ucc))
+sorted.purchases <- purchases[order(-purchases$frequency), ]
+thirty.most.common.purchases <- head(sorted.purchases, 30)
+
+# Perform a join on the item.key table to get the descriptions
+most.common.with.descriptions <- merge(thirty.most.common.purchases, item.key, by = "ucc")
+most.common.with.descriptions$descr <- reorder(most.common.with.descriptions$descr, most.common.with.descriptions$frequency, max)
+
+# Build a scatterplot
+ggplot(data = most.common.with.descriptions, mapping = aes(x = frequency, y = descr)) + geom_point()+
+  ggtitle("Thirty Most Common Itemized Purchases") +
+  labs(x = "Frequency", y = "UCC Category") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+Were there any categories that you expected to see, but didn't?
+
+Most of the values were expected, but I was a bit surprised to not see 620221, Admission to Sporting Events, on the list. This can frequently (through creative accounting) be written off as a business expense. 
+
+**Problem 2:**
+
+Make the same dot chart as before, but group the data into 10 equally sized groups according to the age of the reference person. Each age group has the same number of households. For each age group, show the same 30 categories as you did in problem 1. 
+
+Use `facet_wrap()` or `facet_grid()` to show your results in 10 charts, one per age group. 
+
+To make comparisons easier, in each of your plots add a reference line showing the number of purchases for each category, averaged over all age groups. 
+
+(Hint: You can do this by adding a `geom_line()` which has its own data frame and mapping. If this data frame doesn't include the faceting variable, the line is plotted in all facets.)
+
+```{r}
+
+# For this question, we need the values for UCC Code, UCC Description, purchaser age, and frequency
+problem.2 <- merge(household, item.purchases, by = "newid")
+
+# Extract only the rows for the thirty most common found above
+problem.2 <- subset(problem.2, ucc %in% most.common.with.descriptions$ucc, select=c("newid", "age_ref", "ucc"))
+
+# Create age groups
+problem.2$age_ref = cut(problem.2$age_ref, breaks = 10, dig.lab=1)
+```
+
+```{r fig.width=10, fig.height=12, dpi=100, fig.align='center'}
+problem.2.mutate <- ddply(problem.2, c("ucc", "age_ref"), summarize, frequency = length(ucc))
+
+# Join from the item.key table to get the code description
+problem.2.mutate <- merge(problem.2.mutate, item.key, by = "ucc")
+
+# Find the average frequency of each category
+problem.2.mutate <- ddply(problem.2.mutate, "ucc", mutate, avg.frequency = mean(frequency))
+
+# Reorder the labels based on average frequency
+problem.2.mutate$descr <- reorder(problem.2.mutate$descr, problem.2.mutate$avg.frequency, max)
+
+ggplot(problem.2.mutate, aes(frequency, descr)) +
+  geom_point() +
+  facet_wrap(~age_ref, nrow =2, ncol=5) + 
+  theme(axis.ticks.x=element_blank(), plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Most Commonly Reported Purchases \n (Avg. Count in Grey)") +
+  geom_line(data =NULL, aes(x=avg.frequency,y=descr,group=1), color='gray')
+```
+
+For the youngest age group, which item categories are purchased with above average frequency? For the oldest age group, which item categories are puchased with above average frequency?
+
+For the youngest group, Rent and Electricity were purchased with above average frequency. The oldest group had a higher frequency of medicare purchases.
+
+
+**Problem 3a:**
+
+Create a data frame containing the age, job categories, and hours worked/week of the reference person who answered the survey, and also their spouse if there is one. So your data frame will have one row for each reference person, plus one additional row for each spouse. Your data frame should have three columns, `age`, `job`, and `hours.worked`.
+
+If the age of the spouse is NA, you may assume the household is single. 
+
+The age of the reference person and spouse are contained in the fields `age_ref` and `age2` of the data frame `household`. The job categories of each person are `occucod1` and `occucod2`, in the data frame `income`. The hours worked/week of each person are `inc_hrs1` and `inc_hrs2`, also in `income`.
+
+Hint: The command `rbind(df1, df2)` will manually stack data frames `df1` and `df2` on top of each other. However, they need to have the same column names.
+
+```{r}
+# Merge the household and income data frames
+problem.3 <- merge(household, income, by = "newid")
+problem.3 <- subset(problem.3, select=c("newid", "age_ref", "age2", "occucod1", "occucod2", "inc_hrs1", "inc_hrs2"))
+
+# Create a data frame to store each reference person
+reference.people <- subset(problem.3, select = c("newid", "age_ref", "occucod1", "inc_hrs1"))
+reference.people <- plyr::rename(reference.people, c("age_ref" = "age", "occucod1" = "job", "inc_hrs1" = "hours.worked"))
+
+# Create a data frame for their spouse, and rename columns to match. Remove entries for no spouse (i.e. age2 = NA)
+spouse.info <- subset(problem.3, !is.na(age2), select = c("newid", "age2", "occucod2", "inc_hrs2"))
+spouse.info <- plyr::rename(spouse.info, c("age2" = "age", "occucod2" = "job", "inc_hrs2" = "hours.worked"))
+
+# It wasn't asked for, but I felt that newid was important to retain, in order to keep track of the data for each person
+# I then sort the resulting data frame so that households are grouped together
+problem.3.final <- rbind(reference.people, spouse.info) 
+problem.3.final <- problem.3.final[order(problem.3.final$newid), ]
+
+```
+
+What is the mean age and hours worked for each job category? Produce a table or print the data frame. Order the job categories by the avg hours worked
+
+```{r}
+# Group by job and find the averages, ignoring rows with NA
+job.category.averages <- ddply(problem.3.final, "job", summarize, avg.age = mean(age, na.rm=TRUE), avg.hours = mean(hours.worked, na.rm=TRUE))
+
+job.category.averages <- job.category.averages[order(job.category.averages$avg.hours), ]
+
+# Note that NA most likely represents the unemployed, or someone that didn't report hours. I removed these from the results.
+job.category.averages <- na.omit(job.category.averages)
+kable(job.category.averages)
+```
+
+**Problem 4**
+
+Using the data frame you made in Problem 3a, make a plot showing the average number of hours worked by each job category, and with error bars or point ranges indicate +/- 2 standard deviations (`stat_summary()` with the function `mean_sdl()` can compute this for you).
+
+```{r fig.width=12, fig.height=6, dpi=100, fig.align='center', warning=FALSE}
+
+# Construct the initial plot
+errorbar.plot <- ggplot(data = problem.3.final, mapping=aes(x=job, y=hours.worked))+ stat_summary(fun.data = mean_sdl, geom='errorbar', width=.3)
+
+# Add in the averages, as well as labels
+errorbar.plot + theme(plot.title = element_text(hjust = 0.5), text = element_text(size=10), axis.text.x = element_text(angle=45, vjust=1, hjust=1)) + labs(x = '', y = 'Hours Worked', title='Avg. Hours Worked + 2 SD \n (Grouped by Job Category)') + stat_summary(fun.y = mean, geom='point', size=2)
+
+# Note that the category of NA represents those that exist (have an age), but didn't report an industry or work hours. I can't assume that this means they're unemployed, but that seems most likely. I didn't remove these, as the example image on Blackboard did not either. 
+```
+
+Which job category worked the most hours on average? Which job category had the highest variance in reported hours? 
+
+On average, those serving in the Armed Forces worked the most hours each week. Farmers seemed to have the greatest variation in work hours, perhaps due to the weather.
+

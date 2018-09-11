@@ -1,0 +1,263 @@
+---
+title: "Final Project"
+author: "Samantha L. Misurda"
+date: "February 26, 2017"
+output: html_document
+---
+
+## Preliminary
+
+Important -- please put your name in the "YOUR NAME HERE" section above, so that your project can be identified easily.
+
+## Assignment
+
+The file `project_data.rda` contains the following data frames, which all pertain to global health statistics
+
+  + `pop.by.age`: contains the population for 138 countries, for the years 1950-2050 (using projected populations after 2007), broken up into three age groups (0-19 years, 20-60 years, and 61+ years)
+  + `gdp.lifeExp`: the per capita GDP (a measure of economic wealth) and life expectancy for these countries, for the years 1952-2007
+  + `gdp.lifeExp.small`: a small subset of the years in `gdp.lifeExp`
+  + `continents`: the continent of each country in the previous datasets
+
+This data was made famous by Hans Rosling (1948-2017) and his Gapminder Foundation. You can see one of his videos here: https://www.youtube.com/watch?v=BPt8ElTQMIg
+
+## Part 1
+
+The file `part1.pdf` shows how the age demographics are changing over time for all 138 countries in the data set, where we have used the `Mclust` clustering algorithm to divide the countries up into four groups (note that the clusters differ slightly from the continents):
+
+  + group 1: a group whose age demographics are younger than the other countries, for the entire time span
+  + group 4: a group whose age demographics are older than the other countries, particularly in later years
+  + groups 2 and 3: these groups initially are young and look more like group 1 in 1950, but in later years their demographics shift towards group 4. This might be due to improvements in living quality for these countries. Group 3 shifts further than group 2. 
+
+Your first task is to recreate this plot (or create a similar one), using the data set `pop.by.age` which is in the file `project_data.rda`.
+
+
+
+```{r}
+# load the dataset and libraries
+library(ggplot2)
+library(mclust)
+library(reshape2)
+library(plyr)
+library(knitr)
+load('project_data.rda')
+```
+
+```{r}
+# Add a total column, in order to calculate percentage later. Group by year and country
+pop.by.age <- ddply(pop.by.age, c("year", "country"), mutate, total.population = sum(`0.to.19.yrs`, `20.to.60.yrs`, above.61.yrs))
+
+# Use melt to stack the genre rows into one column                         
+pop.by.age <- melt(pop.by.age, c("country", "year", "continent", "total.population"))
+colnames(pop.by.age)[5] <- "age.group"
+
+# Calculate the percentage of the population in each age group
+pop.by.age <- ddply(pop.by.age, c("year", "country"), mutate, percentage.of.population = round((value/total.population), 2))
+```
+
+```{r}
+# An adaptation of the example distributed with the assignment.
+# Create a column for each "year.variable" pair
+# I ultimately use this with a join in order to prevent one country from being in multiple clusters
+
+pop.melt <- mutate(pop.by.age, year.variable = interaction(year, age.group))
+pop.melt <- subset(pop.melt, select = c('country', 'year.variable', 'percentage.of.population'))
+pop.spread <- tidyr::spread(pop.melt, key = year.variable, value = percentage.of.population)
+
+```
+
+```{r}
+# Run clustering, ignoring Country Name
+clust <- Mclust(pop.spread[,2:64], G=4)
+pop.spread$cluster <- clust$classification
+
+# Join the spreaded data frame and clusters back to the data frame with all of the information we care about
+join.cluster <- subset(pop.spread, select = c("country", "cluster"))
+pop.by.age <- join(pop.by.age, join.cluster, by = "country")
+
+```
+
+```{r}
+# Draw the plot based on the clustering assignments, also grouping the data by one of three age groups
+
+# Create a data frame that contains data for all countries, and overlay it in each facet
+all.countries <- subset(pop.by.age, select = c("country", "year", "continent", "total.population", "age.group", "value", "percentage.of.population"))
+
+ggplot(data = pop.by.age, mapping = aes(x = year, y = percentage.of.population, color = continent, group = country)) +    
+  geom_line(data = all.countries, aes(x = year, y = percentage.of.population, group = country), colour="gray85") + 
+  geom_line() +
+  facet_grid(cluster ~ age.group) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Year', y ='Percentage of Population', title = 'Worldwide Age Demographics Over Time  \n (Grouped by Continent, Clustered by Similarity)') +
+  guides(color = guide_legend(title = "Continent")) +
+  theme(axis.text.x = element_text(angle = 45, size = 8))
+
+```
+
+The produced plots are fairly similar to the example provided. Although the data was not explicitly told to cluster by continent, countries close by tended to group together. As we'll see in the next exercise, countries in Africa tend to have lower life expectancy, and countries in Europe tend to have residents that live longer. These points can help to account for the higher proportions of the population in the younger and older age groups, respectively. 
+
+
+## Part 2
+
+Create a similar plot as in part 1, but for the `gdp.lifeExp` dataset. Use clustering to divide the countries into groups which had similar changes to life expectancy and GDP over time. For each cluster, comment on how life expectancy and GDP is changing over time.
+
+```{r}
+# Reload the project data, just in case something was accidentally overwritten. 
+
+load('project_data.rda')
+
+# Break average life expectancy up into bins
+life.exp.chunks <- cut(gdp.lifeExp$lifeExp, breaks = c(0, 50, 55, 60, 65, 70, 99))
+gdp.lifeExp$lifeExp.chunks <- life.exp.chunks
+
+# Break GDP into bins
+gdp.chunks <- cut(gdp.lifeExp$gdp.per.capita, breaks = c(0, 1000, 2000, 4000, 8000, 16000, 999999), labels = c("Below 1000", "1000 - 2000", "2000 - 4000", "4000 - 8000", "8000 - 16000", "Above 16000"))
+gdp.lifeExp$gdp.chunks <- gdp.chunks
+```
+
+```{r}
+# An adaptation of the example distributed with the assignment.
+# Create a column for each "year.variable" pair
+# I ultimately use this with a join in order to prevent one country from being in multiple clusters
+
+gdp.melt <- reshape2::melt(gdp.lifeExp, id.vars = c('country', 'year'), measure.vars = c('lifeExp', 'gdp.per.capita')) 
+gdp.melt <- mutate(gdp.melt, year.variable = interaction(year, variable))
+gdp.melt <- subset(gdp.melt, select = c('country', 'year.variable', 'value'))
+gdp.spread <- tidyr::spread(gdp.melt, key = year.variable, value = value)
+
+```
+
+```{r}
+# Run clustering, Ignoring Country Name
+clust <- Mclust(gdp.spread[, 2:25], G = 3)
+gdp.spread$cluster <- clust$classification
+
+# Join the spreaded data frame and clusters back to the data frame with all of the information we care about
+join.cluster <- subset(gdp.spread, select = c("country", "cluster"))
+gdp.lifeExp <- join(gdp.lifeExp, join.cluster, by = "country")
+
+```
+
+```{r fig.width= 18}
+# I did my best with getting this to be legible. I played with the figure width, font-size, and angle of the x-axis labels. If this is not readable, I am happy to resubmit.
+
+all.countries <- subset(gdp.lifeExp, select = c("country", "year", "lifeExp", "gdp.per.capita", "continent"))
+
+ggplot(data = gdp.lifeExp, mapping = aes(x = year, y = lifeExp, color = continent, group = country)) +    
+  geom_line(data = all.countries, aes(x = year, y = lifeExp, group = country), colour = "gray85") + 
+  geom_line() +
+  facet_grid(cluster ~ gdp.chunks) + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Year', y ='Life Expectancy', title = 'Worldwide Life Expectancy Over Time  \n (Faceted by GDP Range, Grouped by Continent, Clustered by Similarity)') +
+  guides(color = guide_legend(title = "Continent")) +
+  theme(axis.text.x = element_text(angle = 50, size = 8))
+
+
+```
+
+Note that in order to assist with clustering, I have binned both GDP and life expectancy into smaller intervals of five years, and doubling values, respectively. 
+
+Through trial and error, I settled on instructing Mclust to deliver three clusters. The first, captures African and Asian nations that have low GDP values, and low life expectancy, the second, captures countries from each continent that all seem to have an "average" value for GDP and life expectancy. The final group represents high GDP countries with long life expectancy. These countries tend to come mostly from Europe. As noted in our previous exercise, the life expectancy values align with the age group distributions. Although GDP was not explicitly analyzed in Part 1, we can assume that economic development in each country over time was a factor. 
+
+As expected, both life expectancy and GDP are increasing over time, for all clusters. This is logical, as over time the world gained a better understanding of health and medicine, as well as developed industrially and economically. Countries that saw drops in GDP and life expectancy can most likely be explained by public health crises, political upheaval, or even simply a lack of data points (such as newer countries from the former Soviet Union). 
+
+
+## Part 3
+
+The plot format that we used in parts 1 and 2 has some advantages in letting you see the trajectory of each country over time, but also has some disadvantages.
+
+Comment on these disadvantages, and then use the data frame `gdp.lifeExp.small` to make a few plots (probably 1-3) to answer the following: how did each country evolve over time, in terms of life expectancy and per capita gdp? Your plots should let me identify both overall patterns followed by many countries, as well as individual countries which went against the overall pattern.
+
+This dataset only contains the first and last year for each country (1952 and 2007), so you should make plots that are different from parts 1 and 2. 
+
+### Preliminary Step and Questions
+
+```{r}
+# First off, I am removing both data points for Kuwait, because it is a crazy outlier in 1952 that is throwing off the entire scale of everything. Sorry, Kuwait. 
+forget.kuwait <- subset(gdp.lifeExp.small, country != "Kuwait")
+
+```
+
+As far as advantages and disadvantages of the plots from Part 1 and 2, they should really be evaluated on a case by case basis -- or essentially, who is the audience of our plots? What questions are they trying to answer? 
+
+For general clarity, I find the plots useful for gleaning information about a global trend, or cluster-wide trend, but they prove difficult for isolating specific countries during specific points in time. Below, I will explore using scatterplots, which help to demonstrate a single data point. This is more feasible for a dataset with only two time slices, but it may have been difficult for the larger dataset that we had utilized in the previous two exercises. Additionally, by clustering and restricting a country to one cluster, we lose the ability to see if a country has evolved over time, transitioning to a different cluster.
+
+### Analysis
+
+```{r}
+# Separate the dataset into each year segment
+gdp.lifeExp.1952 <- subset(forget.kuwait, year == 1952)
+gdp.lifeExp.2007 <- subset(forget.kuwait, year == 2007)
+
+# Print summary statistics for each year for life expectancy
+summary(gdp.lifeExp.1952$lifeExp)
+summary(gdp.lifeExp.2007$lifeExp)
+
+# Print summary statistics for each year for GDP
+summary(gdp.lifeExp.1952$gdp.per.capita)
+summary(gdp.lifeExp.2007$gdp.per.capita)
+
+```
+
+As much as I feel like it will be counted against me in a data visualization class, I do believe that sometimes a simple table (or four) can transmit information better than a busy plot. These point out some extreme values that we may wish to examine, as well as provide a baseline for which to make broad comparisons. For example, by looking at the 1st and 3rd quartiles for life expectancy in both years, we can see a pretty significant positive increase in age, indicating that people are living longer. The same positive trend can be seen in the 1st and 3rd quartiles for GDP. The median values for each variable also indicate an increase. It is interesting to note however, that the lowest recorded value for GDP has actually decreased over time. As mentioned above, this data point may be an interesting case to explore further.
+
+```{r}
+# Plot the data for each year, with the median values for each variable plotted on the intercepts
+
+ggplot(data = gdp.lifeExp.1952, mapping = aes(x = lifeExp, y = gdp.per.capita, color = continent)) +    
+  geom_hline(yintercept = 1968, color = "gray75") +
+  geom_vline(xintercept = 45.01, color = "gray75") +
+  geom_point() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Life Expectancy', y ='GDP Per Capita', title = '1952 Average Life Expectancy and GDP Per Capita, Per Country \n (Median values plotted on Intercepts)') +
+  guides(color = guide_legend(title = "Continent"))
+
+ggplot(data = gdp.lifeExp.2007, mapping = aes(x = lifeExp, y = gdp.per.capita, color = continent)) + 
+  geom_hline(yintercept = 6025, color = "gray75") +
+  geom_vline(xintercept = 71.88, color = "gray75") +
+  geom_point() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Life Expectancy', y ='GDP Per Capita', title = '2007 Average Life Expectancy and GDP Per Capita, Per Country \n (Median values plotted on Intercepts)') +
+  guides(color = guide_legend(title = "Continent"))
+```
+
+The plot above provides the median values for GDP Per Capita, as well as life expectancy, as shown on the X and Y axes, allowing quick comparison of each country to the averages. In 1952, we can see that most European countries are above average for both variables, and most African nations are below. A similar pattern follows for the 2007 data. 
+
+```{r}
+# Plot the data grouped by year
+ggplot(data = forget.kuwait, mapping = aes(x = lifeExp, y = gdp.per.capita, color = continent)) +    
+  geom_point() +
+  facet_grid(. ~ year) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Life Expectancy', y ='GDP Per Capita', title = 'Average Life Expectancy and GDP Per Capita, Per Country\n (Grouped by Year)') +
+  guides(color = guide_legend(title = "Continent"))
+
+```
+
+Grouping by year, the trend addressed above for Africa and Europe is made more clear. By noticing the upward tracjectory of GDP, a clear positive trend for almost all countries can be shown over time. Life Expectancy has also been shown to increase, by simply noting where values begin to be plotted. In 1952, a few countries reported numbers as low as before age thirty. That has fortunately changed by 2007.
+
+```{r}
+# Plot the data grouped by continent
+ggplot(data = forget.kuwait, mapping = aes(x = lifeExp, y = gdp.per.capita, color = as.factor(year))) +    
+  geom_point() +
+  facet_grid(. ~ continent) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(x = 'Life Expectancy', y ='GDP Per Capita', title = 'Average Life Expectancy and GDP Per Capita, Per Country\n (Grouped by Continent)') +
+  guides(color = guide_legend(title = "Year"))
+
+```
+
+By faceting the data on continent, the trends presented in the previous plot can be more easily confirmed. 
+
+When looking at this data, it might benefit more from having some kind of hover "tooltip" functionality, as used in D3, or other web-based visualization tools. This would allow the user to instantly know the identity of a data point. Without such functionality, it might be interesting to pick a few countries, and analyze their progress. In this case, let's examine the min and max values for each variable, and see how they evolved over time. Note that we already said we were going to ignore Kuwait, which was the actual highest GDP in 1952 (most likely due to being an oil-rich nation). 
+
+```{r}
+# Subset based on the min and max valued countries for each variable
+min.max.countries <- subset(gdp.lifeExp.small, country == "Afghanistan" | country == "Norway" | country == "Lesotho" | country == "Switzerland")
+kable(min.max.countries)
+```
+
+Looking at the produced table, each country has improved in each area; however, it is interesting to note that low GDP countries increased significantly less than those starting at higher values. Although I am not an economist, I can speculate that these countries may be struggling with wars, exporting of goods, or an otherwise lack of investment. 
+
+Considering the median value for GDP, which we found to be 6025, neither of our low-performing countries (Lesotho and Afghanistan), though demonstrating growth, were even close to obtaining that value. For life expectancy, we had a 2007 median of 71.88. Even more troubling, our two underperformers continue to lag behind, by decades. 
+
+These few examples illustrate that although almost every country is demonstrating improvement, the rates at which underperforming countries show improvement will likely remain slow, with the exception of a few cases. 
